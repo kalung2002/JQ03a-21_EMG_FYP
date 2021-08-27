@@ -162,7 +162,7 @@ bool findAndConnect(deque<string> &raw_data)
                     if (raw_data.size() > 256)
                     {
                         raw_data.pop_front();
-                        return false;
+                        return true;
                     }
                 }
                 else
@@ -181,13 +181,15 @@ main()
     clear();
     deque<string> raw_data;
 
-    findAndConnect(raw_data);
-    for (int i = 0; i < raw_data.size(); i++)
+    if (findAndConnect(raw_data))
     {
-        cout << raw_data[i] << endl;
+        for (int i = 0; i < raw_data.size(); i++)
+        {
+            cout << raw_data[i] << endl;
+        }
+        printf("success\n");
     }
 
-    printf("success\n");
     pause();
     return 0;
 }
