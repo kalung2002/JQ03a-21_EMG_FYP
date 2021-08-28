@@ -1,4 +1,4 @@
-#include <EMGFilters.h>
+//#include <EMGFilters.h>
 #include <base64.hpp>
 
 #define _DEBUG      0
@@ -43,53 +43,47 @@ int data1;
 int data2;
 int data3;
 
-EMGFilters Filter0;
-EMGFilters Filter1;
-EMGFilters Filter2;
-EMGFilters Filter3;
-SAMPLE_FREQUENCY sampleRate = SAMPLE_FREQ_1000HZ;
-NOTCH_FREQUENCY humFreq = NOTCH_FREQ_50HZ;
+//EMGFilters Filter0;
+//EMGFilters Filter1;
+//EMGFilters Filter2;
+//EMGFilters Filter3;
+//SAMPLE_FREQUENCY sampleRate = SAMPLE_FREQ_1000HZ;
+//NOTCH_FREQUENCY humFreq = NOTCH_FREQ_50HZ;
 
 void setup() {
   // put your setup code here, to run once:
   //  pinMode(13, OUTPUT);
   
-   Filter0.init(sampleRate, humFreq, false, true, true);
-   Filter1.init(sampleRate, humFreq, false, true, true);
-   Filter2.init(sampleRate, humFreq, false, true, true);
-   Filter3.init(sampleRate, humFreq, false, true, true);
+//   Filter0.init(sampleRate, humFreq, false, true, true);
+//   Filter1.init(sampleRate, humFreq, false, true, true);
+//   Filter2.init(sampleRate, humFreq, false, true, true);
+//   Filter3.init(sampleRate, humFreq, false, true, true);
+  
   //   myFilter.init(sampleRate, humFreq, true, true, true);
 
   
-  Serial.begin(115200);
-  //Serial.begin(9600);
+//  Serial.begin(115200);
+  Serial.begin(256000);
 }
 
 void loop() {
   // put your main code here, to run repeatedly:
-//  TIM0=micros();
-//  dtime = micros();
-  data0 =analogRead(A0);
-  data0 =analogRead(A0);
-  data0 =analogRead(A0);
-  data0 =analogRead(A0);
-//  tdelay =micros()-dtime;
-//  dtime = micros();
-  EMG0 = Filter0.update(data0);  
-  EMG0 = Filter0.update(data0);
-  EMG0 = Filter0.update(data0);
-  EMG0 = Filter0.update(data0);
-//  tdelay =micros()-dtime;
-  if(EMG0<0){EMG0=abs(EMG0);}
-  if(EMG0<0){EMG0=abs(EMG0);}
-  if(EMG0<0){EMG0=abs(EMG0);}
-  if(EMG0<0){EMG0=abs(EMG0);}
-//tdelay =micros()-dtime;
-//dtime = micros();
-IMURR=EMG0;
-EMG1=EMG2=EMG3=IMUX=IMUY=IMUZ=IMURY=IMURP=IMURR;
-  //5*int with 4*: as seperation
-  //192 bit in 6bit base64
+  //  TIM0=micros();
+  dtime = micros();
+  EMG0 =analogRead(A0);
+  EMG1 =analogRead(A1);
+  EMG2 =analogRead(A2);
+  EMG3 =analogRead(A3);
+
+//  EMG0=Filter0.update(EMG0);
+//  EMG1=Filter1.update(EMG0);
+//  EMG2=Filter2.update(EMG0);
+//  EMG3=Filter3.update(EMG0);
+
+  EMG3 =analogRead(A4);
+  EMG3 =analogRead(A5);
+
+  //144 bit in 6bit base64
   data_before[0]=(TIM0& 0b11111111000000000000000000000000)>>24;
   data_before[1]=(TIM0& 0b00000000111111110000000000000000)>>16;
 
@@ -132,12 +126,10 @@ EMG1=EMG2=EMG3=IMUX=IMUY=IMUZ=IMURY=IMURP=IMURR;
 
   
 //  tdelay =micros()-dtime;
-//  dtime = micros();
-  dtime = micros();  
+
+//  dtime = micros();  
   Serial.print(tdelay);
-//  Serial.print(' ');
   Serial.println(data_pack);
-  
   tdelay =micros()-dtime;
 
 }

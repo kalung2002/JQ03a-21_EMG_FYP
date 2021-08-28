@@ -30,6 +30,63 @@ void PrintCommState(DCB dcb)
            dcb.Parity,
            dcb.StopBits);
 }
+//https://renenyffenegger.ch/notes/development/Base64/Encoding-and-decoding-base-64-with-cpp/
+//https://stackoverflow.com/questions/180947/base64-decode-snippet-in-c
+static const std::string base64_chars =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    "abcdefghijklmnopqrstuvwxyz"
+    "0123456789+/";
+
+static inline bool is_base64(BYTE c)
+{
+    return (isalnum(c) || (c == '+') || (c == '/'));
+}
+std::vector<BYTE> base64_decode(std::string const &encoded_string)
+{
+    int in_len = encoded_string.size();
+    int i = 0;
+    int j = 0;
+    int in_ = 0;
+    BYTE char_array_4[4], char_array_3[3];
+    std::vector<BYTE> ret;
+
+    while (in_len-- && (encoded_string[in_] != '=') && is_base64(encoded_string[in_]))
+    {
+        char_array_4[i++] = encoded_string[in_];
+        in_++;
+        if (i == 4)
+        {
+            for (i = 0; i < 4; i++)
+                char_array_4[i] = base64_chars.find(char_array_4[i]);
+
+            char_array_3[0] = (char_array_4[0] << 2) + ((char_array_4[1] & 0x30) >> 4);
+            char_array_3[1] = ((char_array_4[1] & 0xf) << 4) + ((char_array_4[2] & 0x3c) >> 2);
+            char_array_3[2] = ((char_array_4[2] & 0x3) << 6) + char_array_4[3];
+
+            for (i = 0; (i < 3); i++)
+                ret.push_back(char_array_3[i]);
+            i = 0;
+        }
+    }
+
+    if (i)
+    {
+        for (j = i; j < 4; j++)
+            char_array_4[j] = 0;
+
+        for (j = 0; j < 4; j++)
+            char_array_4[j] = base64_chars.find(char_array_4[j]);
+
+        char_array_3[0] = (char_array_4[0] << 2) + ((char_array_4[1] & 0x30) >> 4);
+        char_array_3[1] = ((char_array_4[1] & 0xf) << 4) + ((char_array_4[2] & 0x3c) >> 2);
+        char_array_3[2] = ((char_array_4[2] & 0x3) << 6) + char_array_4[3];
+
+        for (j = 0; (j < i - 1); j++)
+            ret.push_back(char_array_3[j]);
+    }
+
+    return ret;
+}
 
 bool findAndConnect(deque<string> &raw_data)
 {
@@ -42,6 +99,11 @@ bool findAndConnect(deque<string> &raw_data)
 
     string raw_data_s;
     HANDLE m_hCommPort = INVALID_HANDLE_VALUE;
+
+    COMSTAT comStatus;
+    DWORD bytesRead, error;
+    char data;
+    bool result = false;
     do
     {
         for (int i = 0; i < 255; i++) // checking ports from COM0 to COM255
@@ -134,42 +196,47 @@ bool findAndConnect(deque<string> &raw_data)
         bool fSuccess = false;
         DCB dcb;
         SecureZeroMemory(&dcb, sizeof(DCB));
-        dcb.DCBlength = sizeof(DCB);
-        //  Fill in some DCB values and set the com state:
-        //  115,200 bps, 8 data bits, no parity, and 1 stop bit.
-        dcb.BaudRate = CBR_115200; //  baud rate
-        dcb.ByteSize = 8;          //  data size, xmit and rcv
-        dcb.Parity = NOPARITY;     //  parity bit
-        dcb.StopBits = ONESTOPBIT; //  stop bit
 
         fSuccess = GetCommState(m_hCommPort, &dcb);
+        if (fSuccess)
+        {
+            dcb.DCBlength = sizeof(DCB);
+            //  Fill in some DCB values and set the com state:
+            //  115,200 bps, 8 data bits, no parity, and 1 stop bit.
+            // dcb.BaudRate = CBR_115200; //  baud rate
+            dcb.BaudRate = 256000;     //   over_serial_monitor limit
+            dcb.ByteSize = 8;          //  data size, xmit and rcv
+            dcb.Parity = NOPARITY;     //  parity bit
+            dcb.StopBits = ONESTOPBIT; //  stop bit
+            fSuccess = SetCommState(m_hCommPort, &dcb);
+        }
+        // COMMPROP infos;
+        // GetCommProperties(m_hCommPort, &infos);
+        // printf("Speed:%u\n", infos.dwSettableBaud);
         while (fSuccess)
         {
-            COMSTAT comStatus;
-            DWORD bytesRead, error;
-            char data;
-            bool result = false;
-            ClearCommError(m_hCommPort, &error, &comStatus);
-            if (comStatus.cbInQue)
-            {
-                result = ReadFile(m_hCommPort, &data, sizeof(data), &bytesRead, NULL);
-                if (data == '\n')
-                {
-                    raw_data.push_back(raw_data_s);
-                    // cout << raw_data_s << endl;
+            // ClearCommError(m_hCommPort, &error, &comStatus);
+            // if (comStatus.cbInQue > 1)
+            // {
 
-                    raw_data_s.clear();
-                    if (raw_data.size() > 256)
-                    {
-                        raw_data.pop_front();
-                        return true;
-                    }
-                }
-                else
+            result = ReadFile(m_hCommPort, &data, sizeof(data), &bytesRead, NULL);
+            // return true;
+            if (data != '\n')
+            {
+                raw_data_s.push_back(data);
+            }
+            else
+            {
+                raw_data.push_back(raw_data_s);
+                // cout << raw_data_s << endl;
+                raw_data_s.clear();
+                if (raw_data.size() > 64)
                 {
-                    raw_data_s.push_back(data);
+                    raw_data.pop_front();
+                    return true;
                 }
             }
+            // }
         }
         return true;
     }
