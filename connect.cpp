@@ -88,49 +88,50 @@ std::vector<BYTE> base64_decode(std::string const &encoded_string)
     return ret;
 }
 
-bool findAndConnect(deque<string> &raw_data)
+bool findAndConnect(deque<string> &raw_data_bundle)
 {
     vector<pair<string, string>> list;
     char lpTargetPath[5000]; // buffer to store the path of the COMPORTS
-    bool gotPort = false;    // in case the port is not found
+    bool portExist = false;  // in case the port is not found
+    string comName;
 
-    string sinput; //string input from user
-    int input = 0; //sinput turned into int
+    string useInput; //string input from user
+    int input = 0;   //useInput turned into int
 
     string raw_data_s;
+
     HANDLE m_hCommPort = INVALID_HANDLE_VALUE;
 
     COMSTAT comStatus;
     DWORD bytesRead, error;
     char data;
-    bool result = false;
+
+    bool fSuccess = false;
+    DCB dcb;
+    SecureZeroMemory(&dcb, sizeof(DCB));
+
     do
     {
         for (int i = 0; i < 255; i++) // checking ports from COM0 to COM255
         {
             // converting to COM0, COM1, COM2
-            string str = "COM" + to_string(i);
-            LPCSTR lstr = str.c_str();
+            comName = "COM" + to_string(i);
             //DWORD QueryDosDeviceW(
-            //   LPCWSTR lpDeviceName,
-            //   LPWSTR  lpTargetPath,
+            //   LPCWSTR lpDeviceName,  c_str
+            //   LPWSTR  lpTargetPath,  c_str
             //   DWORD   ucchMax
             //   );
-            DWORD test = QueryDosDevice(lstr, lpTargetPath, 5000);
-
             // Test the return value and error if any
-            if (test != 0) //QueryDosDevice returns zero if it didn't find an object
+            if (QueryDosDevice(comName.c_str(), lpTargetPath, 5000)) //QueryDosDevice returns zero if it didn't find an object
             {
-                // pair<string, string> buffer(lstr, lpTargetPath);
-                list.push_back(make_pair(lstr, lpTargetPath));
-                gotPort = true;
+                list.push_back(make_pair(comName, lpTargetPath));
+                portExist = true;
             }
-
             // if (::GetLastError() == ERROR_INSUFFICIENT_BUFFER)
             // {
             // }
         }
-        if (!gotPort)
+        if (!portExist) //load waiting message if port note found
         {
             cout << "waiting device to connect" << flush;
             for (int i = 0; i < 10; i++)
@@ -145,9 +146,9 @@ bool findAndConnect(deque<string> &raw_data)
         {
             clear();
         }
-    } while (!gotPort);
+    } while (!portExist);
 
-    if (gotPort)
+    if (portExist)
     {
         cout << "Select connection from list\n================" << endl;
         for (auto it = list.begin(); it != list.end(); ++it)
@@ -159,9 +160,9 @@ bool findAndConnect(deque<string> &raw_data)
         }
         cout << "================" << endl;
         cout << "Enter what device to connect: ";
-        cin >> sinput;
+        cin >> useInput;
         input = list.size() + 1; //that way input must go through stoi
-        input = stoi(sinput);    //sinput convert into int
+        input = stoi(useInput);  //useInput convert into int
         cout << flush << endl;   //flush just to be safe
         if (input < list.size())
         {
@@ -193,10 +194,6 @@ bool findAndConnect(deque<string> &raw_data)
     }
     else
     {
-        bool fSuccess = false;
-        DCB dcb;
-        SecureZeroMemory(&dcb, sizeof(DCB));
-
         fSuccess = GetCommState(m_hCommPort, &dcb);
         if (fSuccess)
         {
@@ -219,22 +216,30 @@ bool findAndConnect(deque<string> &raw_data)
             // if (comStatus.cbInQue > 1)
             // {
 
-            result = ReadFile(m_hCommPort, &data, sizeof(data), &bytesRead, NULL);
-            // return true;
-            if (data != '\n')
+            if (ReadFile(m_hCommPort, &data, sizeof(data), &bytesRead, NULL))
             {
-                raw_data_s.push_back(data);
+                // return true;
+                if (data != '\n')
+                {
+                    raw_data_s.push_back(data);
+                }
+                else
+                {
+                    raw_data_bundle.push_back(raw_data_s);
+                    // cout << raw_data_s << endl;
+                    raw_data_s.clear();
+                    if (raw_data_bundle.size() > 64)
+                    {
+                        raw_data_bundle.pop_front();
+                        return true;
+                    }
+                }
             }
             else
             {
-                raw_data.push_back(raw_data_s);
-                // cout << raw_data_s << endl;
-                raw_data_s.clear();
-                if (raw_data.size() > 64)
-                {
-                    raw_data.pop_front();
-                    return true;
-                }
+                cerr << "Readfile error\n"
+                     << flush;
+                return false;
             }
             // }
         }
@@ -246,13 +251,13 @@ bool findAndConnect(deque<string> &raw_data)
 main()
 {
     clear();
-    deque<string> raw_data;
+    deque<string> raw_data_bundle;
 
-    if (findAndConnect(raw_data))
+    if (findAndConnect(raw_data_bundle))
     {
-        for (int i = 0; i < raw_data.size(); i++)
+        for (int i = 0; i < raw_data_bundle.size(); i++)
         {
-            cout << raw_data[i] << endl;
+            cout << raw_data_bundle[i] << endl;
         }
         printf("success\n");
     }
