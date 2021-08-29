@@ -1,14 +1,18 @@
-#include <cstdlib>
-#include <stdio.h>
 #include <Windows.h>
 #include <assert.h>
 
 #include <iostream>
+#include <stdio.h>
+
 #include <cstdio>
+#include <cstdlib>
 
 #include <string>
 #include <vector>
 #include <deque>
+
+#include <chrono>
+#include <thread>
 
 using namespace std;
 void pause()
@@ -19,7 +23,7 @@ void pause()
 void clear()
 {
     // CSI[2J clears screen, CSI[H moves the cursor to top-left corner
-    std::cout << "\x1B[2J\x1B[H";
+    std::cout << "\x1B[2J\x1B[H" << flush;
 }
 void PrintCommState(DCB dcb)
 {
@@ -201,38 +205,46 @@ bool findAndConnect(deque<string> &raw_data_bundle)
             //  Fill in some DCB values and set the com state:
             //  115,200 bps, 8 data bits, no parity, and 1 stop bit.
             // dcb.BaudRate = CBR_115200; //  baud rate
-            dcb.BaudRate = 256000;     //   over_serial_monitor limit
+            dcb.BaudRate = 500000; //   over_serial_monitor limit
+            // dcb.BaudRate = 256000;     //   over_serial_monitor limit
             dcb.ByteSize = 8;          //  data size, xmit and rcv
             dcb.Parity = NOPARITY;     //  parity bit
             dcb.StopBits = ONESTOPBIT; //  stop bit
             fSuccess = SetCommState(m_hCommPort, &dcb);
+            if (fSuccess)
+            {
+                cout << "Start reading data" << endl;
+            }
         }
         // COMMPROP infos;
         // GetCommProperties(m_hCommPort, &infos);
         // printf("Speed:%u\n", infos.dwSettableBaud);
+        std::this_thread::sleep_for(200ms);
         while (fSuccess)
         {
             // ClearCommError(m_hCommPort, &error, &comStatus);
             // if (comStatus.cbInQue > 1)
             // {
-
             if (ReadFile(m_hCommPort, &data, sizeof(data), &bytesRead, NULL))
             {
                 // return true;
+                // cout << data << flush;
                 if (data != '\n')
                 {
                     raw_data_s.push_back(data);
                 }
                 else
                 {
-                    raw_data_bundle.push_back(raw_data_s);
                     // cout << raw_data_s << endl;
-                    raw_data_s.clear();
-                    if (raw_data_bundle.size() > 64)
+                    if (raw_data_bundle.size() > 1024)
                     {
                         raw_data_bundle.pop_front();
-                        return true;
+                        raw_data_bundle.pop_front();
+                        raw_data_bundle.pop_front();
+                        // return true;
                     }
+                    raw_data_bundle.push_back(raw_data_s);
+                    raw_data_s.clear();
                 }
             }
             else
@@ -247,20 +259,34 @@ bool findAndConnect(deque<string> &raw_data_bundle)
     }
     return false;
 }
-
+void print_raw_data(deque<string> &raw_data_bundle)
+{
+    while (true)
+    {
+        if (raw_data_bundle.size() > 0)
+        {
+            // cout << '#' << raw_data_bundle.size() << endl;
+            // cout << '#' << raw_data_bundle.front() << endl;
+            clear();
+            // raw_data_bundle.pop_front();
+        }
+    }
+}
 main()
 {
     clear();
-    deque<string> raw_data_bundle;
+    static deque<string> raw_data_bundle;
+    std::thread t_rawdata(findAndConnect, ref(raw_data_bundle));
+    std::thread t_printdata(print_raw_data, ref(raw_data_bundle));
 
-    if (findAndConnect(raw_data_bundle))
+    t_printdata.join();
+    t_rawdata.join();
+
+    for (int i = 0; i < raw_data_bundle.size(); i++)
     {
-        for (int i = 0; i < raw_data_bundle.size(); i++)
-        {
-            cout << raw_data_bundle[i] << endl;
-        }
-        printf("success\n");
+        cout << raw_data_bundle[i] << endl;
     }
+    printf("success\n");
 
     pause();
     return 0;

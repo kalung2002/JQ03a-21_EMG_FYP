@@ -1,12 +1,17 @@
 //#include <EMGFilters.h>
+//#define _DEBUG      0
+//#define CALIBRATE 1
+//int baseline = 200;
+#ifndef cbi
+#define cbi(sfr, bit) (_SFR_BYTE(sfr) &= ~_BV(bit))
+#endif
+#ifndef sbi
+#define sbi(sfr, bit) (_SFR_BYTE(sfr) |= _BV(bit))
+#endif
+
 #include <base64.hpp>
 
-#define _DEBUG      0
-#define CALIBRATE 1
-//int baseline = 200;
-
-unsigned int dtime = micros();
-unsigned int tdelay;
+unsigned int duration = micros();
 
 //char char_set[65] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/" ;
 char data_before[18];//no need \0 since it is temp
@@ -38,15 +43,7 @@ unsigned short IMURR;           //8
 //unsigned short IMURP;
 //unsigned short IMURR;
 /////////////////////
-int data0;
-int data1;
-int data2;
-int data3;
 
-//EMGFilters Filter0;
-//EMGFilters Filter1;
-//EMGFilters Filter2;
-//EMGFilters Filter3;
 //SAMPLE_FREQUENCY sampleRate = SAMPLE_FREQ_1000HZ;
 //NOTCH_FREQUENCY humFreq = NOTCH_FREQ_50HZ;
 
@@ -54,34 +51,30 @@ void setup() {
   // put your setup code here, to run once:
   //  pinMode(13, OUTPUT);
   
-//   Filter0.init(sampleRate, humFreq, false, true, true);
-//   Filter1.init(sampleRate, humFreq, false, true, true);
-//   Filter2.init(sampleRate, humFreq, false, true, true);
-//   Filter3.init(sampleRate, humFreq, false, true, true);
-  
   //   myFilter.init(sampleRate, humFreq, true, true, true);
 
-  
 //  Serial.begin(115200);
-  Serial.begin(256000);
+// set prescale to 16
+  sbi(ADCSRA,ADPS2);
+  cbi(ADCSRA,ADPS1);
+  cbi(ADCSRA,ADPS0);
+
+//  Serial.begin(256000);
+  Serial.begin(500000);
 }
 
 void loop() {
   // put your main code here, to run repeatedly:
-  //  TIM0=micros();
-  dtime = micros();
+  TIM0 = micros();
+  
   EMG0 =analogRead(A0);
   EMG1 =analogRead(A1);
   EMG2 =analogRead(A2);
   EMG3 =analogRead(A3);
 
-//  EMG0=Filter0.update(EMG0);
-//  EMG1=Filter1.update(EMG0);
-//  EMG2=Filter2.update(EMG0);
-//  EMG3=Filter3.update(EMG0);
-
   EMG3 =analogRead(A4);
   EMG3 =analogRead(A5);
+  IMURP=IMURY=IMURR=IMUX=IMUY=IMUZ=EMG3=EMG2=EMG1=EMG0;
 
   //144 bit in 6bit base64
   data_before[0]=(TIM0& 0b11111111000000000000000000000000)>>24;
@@ -112,24 +105,11 @@ void loop() {
 
   encode_base64(data_before,18,data_pack);
   
-//
-//  data_pack[0]=highByte();
-//  data_pack[1]=lowByte();
-//  
-//  data_pack[0]=highByte();
-//  data_pack[1]=lowByte();
-//
-//  data_pack[0]=highByte();
-//  data_pack[1]=lowByte();
-
-
-
-  
-//  tdelay =micros()-dtime;
-
-//  dtime = micros();  
-  Serial.print(tdelay);
+  Serial.print(duration);
   Serial.println(data_pack);
-  tdelay =micros()-dtime;
+  duration = micros()-TIM0;
+  if(duration<980){
+   delayMicroseconds(1000-duration);
+  }
 
 }
