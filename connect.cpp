@@ -290,6 +290,7 @@ void print_raw_data(queue<string> &raw_data_bundle, spin_lock &lock, vector<unsi
     vector<BYTE> byte_buffer;
     while (true)
     {
+        // lock.lock();
         if (raw_data_bundle.size() > 0)
         {
             byte_buffer.clear();
