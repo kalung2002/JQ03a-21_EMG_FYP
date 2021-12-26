@@ -1,0 +1,298 @@
+#include <NRF52_MBED_TimerInterrupt.h>
+#include <NRF52_MBED_ISR_Timer.h>
+
+#include <ArduinoBLE.h>
+#include <base64.hpp>
+#include <EMGFilters.h>
+#include <Scheduler.h>
+#include <array>
+
+class cir_buf
+{
+private:
+  // int capacity = 0;
+  // int data_count = 0;
+  // uint16_t *array = nullptr;
+  // uint16_t *head = nullptr;
+  // uint16_t *now = nullptr;
+  // uint16_t *tail = nullptr; //tail = next one(empty)
+
+public:
+  int capacity = 0;
+  int data_count = 0;
+  uint16_t *array = nullptr;
+  uint16_t *head = nullptr;
+  uint16_t *now = nullptr;
+  uint16_t *tail = nullptr; //tail = next one(empty)
+  cir_buf(int capacity=200)
+  {
+    if (capacity > 0)
+    {
+      this->array = new uint16_t[capacity];
+      head = this->array;
+      now = this->array;
+      tail = this->array;
+    }
+    this->capacity = capacity;
+  }
+  void add(uint16_t data)
+  {
+    if (this->isEmpty())
+    {
+      data_count++;
+      *this->now = data;
+      this->tail = nextptr(this->tail);
+    }
+    else if (this->isFull())
+    {
+      // cout << "****FULLED" << flush;
+      *this->tail = data;
+      this->now = this->tail;
+      this->head = nextptr(this->head);
+      this->tail = nextptr(this->tail);
+    }
+    else
+    {
+      data_count++;
+      *this->tail = data;
+      this->now = this->tail;
+      this->tail = nextptr(this->tail);
+    }
+  }
+  uint16_t remove()
+  {
+    uint16_t out = 0;
+    if (isEmpty())
+    {
+      return out;
+    }
+
+    if (data_count == 1)
+    {
+      data_count--;
+      this->tail = prev(this->tail);
+      out = *this->now;
+      *this->now = 64; ////////////////////
+                       // cout << "empty" << endl;
+    }
+    else
+    {
+      data_count--;
+      out = *this->now;
+      *this->now = 64; ////////////////////
+      this->now = prev(this->now);
+      this->tail = prev(this->tail);
+    }
+    return out;
+  }
+  uint16_t pop_front()
+  {
+    if (!isEmpty())
+    {
+      data_count--;
+      uint16_t out = *this->head;
+      *this->head = 64;
+      this->head = nextptr(this->head);
+      if (data_count == 0)
+      {
+        this->now = nextptr(this->now);
+      }
+      return out;
+    }
+    return 0;
+  }
+  uint16_t *nextptr(uint16_t *pos)
+  {
+    if (pos + 1 < this->array + this->capacity)
+    {
+      return pos + 1;
+    }
+    else
+    {
+      return this->array;
+    }
+  }
+  uint16_t *prev(uint16_t *pos)
+  {
+    if (pos - 1 >= this->array)
+    {
+      return pos - 1;
+    }
+    else
+    {
+      return this->array + this->capacity - 1;
+    }
+  }
+  bool isFull() { return (this->head == this->tail) && (this->head != this->now); }
+  bool isEmpty() { return (this->head == this->tail) && (data_count == 0); }
+  unsigned int getSize()
+  {
+    if (isFull())
+    {
+      return this->capacity;
+    }
+    if (this->now - this->head >= 0)
+    {
+      return this->now - this->head + 1;
+    }
+    else
+    {
+      return ((this->now - this->array) + 1 + (this->array + capacity - this->head));
+    }
+  }
+  uint16_t getLatest()
+  {
+    if (!isEmpty())
+    {
+      return *this->tail;
+    }
+    return 0;
+  }
+  uint16_t getItem(int index)
+  {
+    uint16_t *out = nullptr;
+    if (index < capacity && index >= 0 && index < getSize())
+    {
+      if (this->head + index < this->array + capacity)
+      {
+        out = (this->head + index);
+      }
+      else
+      {
+        out = (this->array + index - (this->array + capacity - this->head));
+      }
+    }
+    if (out)
+    {
+      return *out;
+    }
+    return 0;
+  }
+  void debug(int i)
+  {
+    // cout << setw(4) << i << "***";
+    // cout << "|" << head << "|" << now << "|" << tail << "|";
+    // cout << "isFULL:" << isFull() << " is Empty:" << isEmpty();
+    // cout << "size:" << getSize();
+    // cout << "data_count" << data_count;
+    // cout << endl;
+  }
+  void printArray(bool abs = true)
+  {
+    // for (int i = 0; i < capacity; i++)
+    // {
+    //   if (abs)
+    //   {
+    //     cout << (char)this->array[i] << " | ";
+    //   }
+    //   else
+    //   {
+    //     cout << (char)getItem(i) << " | ";
+    //   }
+    // }
+    // cout << endl;
+  }
+}; /////////////////////
+const unsigned channel = 1;
+unsigned long TIM0, TIM1, TIM2, counter, counter1, BLEcounter;
+cir_buf *buffer = new cir_buf[channel];
+
+for (int i = 0; i < channel; i++)
+{
+  buffer[i] = cir_buf(200);
+}
+EMGFilters myFilter[channel];
+//short IMU[6];
+const int base64len = ceil((channel * 16) / 6) + 1;
+uint8_t dataSent[base64len];
+
+static short index20;
+uint8_t dataBig[20];
+
+///////////////////////////
+
+void readFilter(int num_channel, EMGFilters *filter, cir_buf *buffer)
+{
+  int data;
+  for (int i = 0; i < num_channel; i++)
+  {
+    data = analogRead(i);
+    Serial.println(data);
+    // buffer[i].add(abs(filter[i].update(data)));
+  }
+}
+void encode_64()
+{
+  // encode_base64(dataPack, num_channel * 2, dataOut);
+}
+void appendEnd(int index, int size20, uint8_t *data)
+{
+  for (int i = index; i < size20; i++)
+  {
+    data[i] = '@';
+  }
+}
+SAMPLE_FREQUENCY sampleRate = SAMPLE_FREQ_1000HZ;
+NOTCH_FREQUENCY humFreq = NOTCH_FREQ_50HZ;
+BLEService EMGService("1101");
+//BLEStringCharacteristic EEMG0("0A81", BLERead | BLENotify,base64len);
+//BLECharacteristic EEMG0("0A81", BLERead | BLENotify, base64len);
+BLECharacteristic EEMG0("0A81", BLERead | BLENotify, 20);
+void setup()
+{
+  // put your setup code here, to run once:
+  pinMode(13, OUTPUT);
+  Serial.begin(115200);
+  while (!Serial)
+  {
+    delay(1000);
+  }
+  while (!BLE.begin())
+  {
+    delay(200);
+  };
+  for (size_t i = 0; i < sizeof(myFilter) / sizeof(myFilter[0]); i++)
+  {
+    myFilter[i].init(sampleRate, humFreq, true, true, true);
+  }
+  //  Serial.begin(20000);
+  //  BLE.setConnectionInterval(0x0006, 0x0080);
+  BLE.setLocalName("EMG_Test");
+  BLE.setAdvertisedService(EMGService);
+  EMGService.addCharacteristic(EEMG0);
+
+  BLE.addService(EMGService);
+  BLE.advertise();
+  TIM2 = millis();
+}
+void loop()
+{
+  readFilter(channel, myFilter, buffer);
+}
+void loopADC()
+{
+}
+void loopBLE()
+{
+  // put your main code here, to run repeatedly:
+  BLEDevice central = BLE.central();
+  Serial.println(micros());
+  if (central)
+  {
+    Serial.print("Connected to central: ");
+    Serial.println(central.address());
+
+    while (central.connected() && BLEcounter < 100)
+    {
+      TIM0 = micros();
+      //////////////////////////////////////////////////////////////
+      // EEMG0.writeValue();
+      ///////////////////////////////////////////////////////////////
+      //      EEMG0.writeValue(String((char*)dataSent));
+      //      EEMG0.writeValue((char *)dataSent, true);
+      //      EEMG0.writeValue((char*)dataBig,true);
+      // /////////////////////////////////////////////////////////////
+    }
+  }
+}
+}

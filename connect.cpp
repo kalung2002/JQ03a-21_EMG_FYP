@@ -9,12 +9,36 @@
 
 #include <string>
 #include <vector>
-#include <deque>
+#include <queue>
 
 #include <chrono>
 #include <thread>
+#include <atomic>
 
 using namespace std;
+class spin_lock
+{
+    static constexpr int UNLOCKED = 0;
+    static constexpr int LOCKED = 1;
+
+    std::atomic<int> m_value = 0;
+
+public:
+    void lock()
+    {
+        while (true)
+        {
+            int expected = UNLOCKED;
+            if (m_value.compare_exchange_strong(expected, LOCKED))
+                break;
+        }
+    }
+
+    void unlock()
+    {
+        m_value.store(UNLOCKED);
+    }
+};
 void pause()
 {
     std::cout << "Press enter to continue";
@@ -34,6 +58,7 @@ void PrintCommState(DCB dcb)
            dcb.Parity,
            dcb.StopBits);
 }
+
 //https://renenyffenegger.ch/notes/development/Base64/Encoding-and-decoding-base-64-with-cpp/
 //https://stackoverflow.com/questions/180947/base64-decode-snippet-in-c
 static const std::string base64_chars =
@@ -45,54 +70,53 @@ static inline bool is_base64(BYTE c)
 {
     return (isalnum(c) || (c == '+') || (c == '/'));
 }
-std::vector<BYTE> base64_decode(std::string const &encoded_string)
+static const BYTE from_base64[] = {255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+                                   255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+                                   255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 62, 255, 62, 255, 63,
+                                   52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 255, 255, 255, 255, 255, 255,
+                                   255, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14,
+                                   15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 255, 255, 255, 255, 63,
+                                   255, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40,
+                                   41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 255, 255, 255, 255, 255};
+
+std::vector<BYTE> decode(std::string encoded_string)
 {
-    int in_len = encoded_string.size();
-    int i = 0;
-    int j = 0;
-    int in_ = 0;
-    BYTE char_array_4[4], char_array_3[3];
+    // Make sure string length is a multiple of 4
+    while ((encoded_string.size() % 4) != 0)
+        encoded_string.push_back('=');
+
+    size_t encoded_size = encoded_string.size();
     std::vector<BYTE> ret;
+    ret.reserve(3 * encoded_size / 4);
 
-    while (in_len-- && (encoded_string[in_] != '=') && is_base64(encoded_string[in_]))
+    for (size_t i = 0; i < encoded_size; i += 4)
     {
-        char_array_4[i++] = encoded_string[in_];
-        in_++;
-        if (i == 4)
-        {
-            for (i = 0; i < 4; i++)
-                char_array_4[i] = base64_chars.find(char_array_4[i]);
+        // Get values for each group of four base 64 characters
+        BYTE b4[4];
+        b4[0] = (encoded_string[i + 0] <= 'z') ? from_base64[encoded_string[i + 0]] : 0xff;
+        b4[1] = (encoded_string[i + 1] <= 'z') ? from_base64[encoded_string[i + 1]] : 0xff;
+        b4[2] = (encoded_string[i + 2] <= 'z') ? from_base64[encoded_string[i + 2]] : 0xff;
+        b4[3] = (encoded_string[i + 3] <= 'z') ? from_base64[encoded_string[i + 3]] : 0xff;
 
-            char_array_3[0] = (char_array_4[0] << 2) + ((char_array_4[1] & 0x30) >> 4);
-            char_array_3[1] = ((char_array_4[1] & 0xf) << 4) + ((char_array_4[2] & 0x3c) >> 2);
-            char_array_3[2] = ((char_array_4[2] & 0x3) << 6) + char_array_4[3];
+        // Transform into a group of three bytes
+        BYTE b3[3];
+        b3[0] = ((b4[0] & 0x3f) << 2) + ((b4[1] & 0x30) >> 4);
+        b3[1] = ((b4[1] & 0x0f) << 4) + ((b4[2] & 0x3c) >> 2);
+        b3[2] = ((b4[2] & 0x03) << 6) + ((b4[3] & 0x3f) >> 0);
 
-            for (i = 0; (i < 3); i++)
-                ret.push_back(char_array_3[i]);
-            i = 0;
-        }
-    }
-
-    if (i)
-    {
-        for (j = i; j < 4; j++)
-            char_array_4[j] = 0;
-
-        for (j = 0; j < 4; j++)
-            char_array_4[j] = base64_chars.find(char_array_4[j]);
-
-        char_array_3[0] = (char_array_4[0] << 2) + ((char_array_4[1] & 0x30) >> 4);
-        char_array_3[1] = ((char_array_4[1] & 0xf) << 4) + ((char_array_4[2] & 0x3c) >> 2);
-        char_array_3[2] = ((char_array_4[2] & 0x3) << 6) + char_array_4[3];
-
-        for (j = 0; (j < i - 1); j++)
-            ret.push_back(char_array_3[j]);
+        // Add the byte to the return value if it isn't part of an '=' character (indicated by 0xff)
+        if (b4[1] != 0xff)
+            ret.push_back(b3[0]);
+        if (b4[2] != 0xff)
+            ret.push_back(b3[1]);
+        if (b4[3] != 0xff)
+            ret.push_back(b3[2]);
     }
 
     return ret;
 }
 
-bool findAndConnect(deque<string> &raw_data_bundle)
+bool findAndConnect(queue<string> &raw_data_bundle, spin_lock &lock)
 {
     vector<pair<string, string>> list;
     char lpTargetPath[5000]; // buffer to store the path of the COMPORTS
@@ -236,15 +260,16 @@ bool findAndConnect(deque<string> &raw_data_bundle)
                 else
                 {
                     // cout << raw_data_s << endl;
-                    if (raw_data_bundle.size() > 1024)
+                    lock.lock();
+                    raw_data_bundle.push(raw_data_s);
+
+                    raw_data_s.clear();
+                    while (raw_data_bundle.size() > 10)
                     {
-                        raw_data_bundle.pop_front();
-                        raw_data_bundle.pop_front();
-                        raw_data_bundle.pop_front();
+                        raw_data_bundle.pop();
                         // return true;
                     }
-                    raw_data_bundle.push_back(raw_data_s);
-                    raw_data_s.clear();
+                    lock.unlock();
                 }
             }
             else
@@ -259,33 +284,89 @@ bool findAndConnect(deque<string> &raw_data_bundle)
     }
     return false;
 }
-void print_raw_data(deque<string> &raw_data_bundle)
+void print_raw_data(queue<string> &raw_data_bundle, spin_lock &lock, vector<unsigned> &out)
 {
+    string buffer;
+    vector<BYTE> byte_buffer;
     while (true)
     {
+        // lock.lock();
         if (raw_data_bundle.size() > 0)
         {
-            // cout << '#' << raw_data_bundle.size() << endl;
-            // cout << '#' << raw_data_bundle.front() << endl;
-            clear();
-            // raw_data_bundle.pop_front();
+            byte_buffer.clear();
+            fill(out.begin(), out.end(), 0);
+            lock.lock();
+            buffer = raw_data_bundle.front();
+            raw_data_bundle.pop();
+            lock.unlock();
+
+            byte_buffer = decode(buffer);
+
+            // for (int i = 0; i < 18; i++)
+            // {
+            //     cout << ((byte_buffer[i] & 0b10000000) > 0);
+            //     cout << ((byte_buffer[i] & 0b01000000) > 0);
+            //     cout << ((byte_buffer[i] & 0b00100000) > 0);
+            //     cout << ((byte_buffer[i] & 0b00010000) > 0);
+            //     cout << ((byte_buffer[i] & 0b00001000) > 0);
+            //     cout << ((byte_buffer[i] & 0b00000100) > 0);
+            //     cout << ((byte_buffer[i] & 0b00000010) > 0);
+            //     cout << ((byte_buffer[i] & 0b00000001) > 0);
+
+            //     cout << endl;
+            // }
+            // cout << endl;
+
+            out[10] = (unsigned)byte_buffer[17];
+            out[9] = (unsigned)byte_buffer[16];
+            out[8] = (unsigned)byte_buffer[15];
+            out[7] = (unsigned)byte_buffer[14];
+            out[6] = (unsigned)byte_buffer[13];
+            out[5] = (unsigned)byte_buffer[12];
+
+            out[4] += (unsigned)(byte_buffer[11]);
+            out[4] += (unsigned)(byte_buffer[10] << 8);
+
+            out[3] += (unsigned)(byte_buffer[9]);
+            out[3] += (unsigned)(byte_buffer[8] << 8);
+
+            out[2] += (unsigned)(byte_buffer[7]);
+            out[2] += (unsigned)(byte_buffer[6] << 8);
+
+            out[1] += (unsigned)(byte_buffer[5]);
+            out[1] += (unsigned)(byte_buffer[4] << 8);
+
+            out[0] += (unsigned)(byte_buffer[3]);
+            out[0] += (unsigned)(byte_buffer[2] << 8);
+            out[0] += (unsigned)(byte_buffer[1] << 16);
+            out[0] += (unsigned)(byte_buffer[0] << 24);
+
+            for (int i = 0; i < 11; i++)
+            {
+                printf("%8i : ", out[i]);
+            }
+            cout << endl;
         }
     }
 }
 main()
 {
     clear();
-    static deque<string> raw_data_bundle;
-    std::thread t_rawdata(findAndConnect, ref(raw_data_bundle));
-    std::thread t_printdata(print_raw_data, ref(raw_data_bundle));
+    static queue<string> raw_data_bundle;
+    static spin_lock lock_queue;
+    static vector<unsigned> dataset(11);
+
+    std::thread t_rawdata(findAndConnect, ref(raw_data_bundle), ref(lock_queue));
+    std::thread t_printdata(print_raw_data, ref(raw_data_bundle), ref(lock_queue), ref(dataset));
 
     t_printdata.join();
     t_rawdata.join();
 
-    for (int i = 0; i < raw_data_bundle.size(); i++)
-    {
-        cout << raw_data_bundle[i] << endl;
-    }
+    // while (raw_data_bundle.size() > 0)
+    // {
+    //     cout << raw_data_bundle.front() << endl;
+    //     raw_data_bundle.pop();
+    // }
     printf("success\n");
 
     pause();
